@@ -1,0 +1,164 @@
+---
+title: "Case Study: NYC Airbnb Data"
+author: "Jessica Lavery"
+date: "10/8/2019"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# changing the size of a figure
+# out.width/out.height control the size of the figure inserted into your document
+knitr::opts_chunk$set(
+  fig.width = 6,
+  fig.asp = .6,
+  out.width = "90%"
+)
+
+library(tidyverse)
+library(ggridges)
+library(patchwork)
+library(p8105.datasets)
+library(kableExtra)
+library(leaflet)
+
+# to apply the same formats/themes to all plots
+knitr::opts_chunk$set(
+  fig.width = 6,
+  fig.asp = .6,
+  out.width = "90%"
+)
+
+theme_set(theme_bw() + theme(legend.position = "bottom"))
+```
+
+
+```{r}
+# get airbnb dataset from p8105.datasets package
+data(nyc_airbnb)
+
+# look at structure of airbnb data
+str(nyc_airbnb)
+
+nyc_airbnb %>%
+  count(room_type)
+
+nyc_airbnb %>%
+  count(neighbourhood_group)
+```
+
+Potential questions:  
+1. How are airbnb prices related to rent in the neighborhood?  
+2. Which neighborhoods have the most and least expensive rentals?  
+3. Do hosts with multiple sites have higher prices or ratings than hosts with one site?
+4. Does price have any relation to ratings?
+5. Does price drive availability? 
+6. Does room type correspond to ratings? Does this differ by neighborhoods?
+
+### How are airbnb prices related to rent in the neighborhood?
+
+Manhattan is the most expsnive borough, the Bronx is the least expensive. Staten Island has the greatest variability in price. 
+```{r}
+nyc_airbnb %>% 
+  group_by(neighbourhood_group) %>% 
+  summarize(median_price = median(price),
+            mean_price = mean(price),
+            sd_price = sd(price)) %>% 
+  ggplot(aes(x = neighbourhood_group, y = mean_price)) + 
+  geom_point() + 
+  geom_errorbar(aes(x = neighbourhood_group, ymin = mean_price - sd_price, ymax = mean_price + sd_price)) + 
+  labs(
+    x = "Borough",
+    y = "Average price (+/- standard deviation)"
+  )
+```
+
+### Does price have any relation to ratings?
+
+Higher prices are observed among airbnbs with higher reviews. 
+
+```{r}
+ggplot(data = nyc_airbnb %>% drop_na(review_scores_location), aes(x = as.factor(review_scores_location), y = price)) + 
+  geom_boxplot()
+```
+
+### Is room type associated with star ratings?
+
+```{r}
+nyc_airbnb2 <- nyc_airbnb %>% 
+  mutate(borough = neighbourhood_group,
+         stars = factor(floor(review_scores_location/2))) %>% 
+  drop_na(stars)
+
+ggplot(nyc_airbnb2, aes(x = stars, y = price)) + 
+  geom_boxplot()
+```
+
+### Distribution of price by room type
+```{r}
+ggplot(data = nyc_airbnb, aes(x = room_type, y = price)) + 
+  geom_boxplot()
+```
+
+### Days booked by borough
+```{r}
+nyc_airbnb3 <- nyc_airbnb %>% 
+  mutate(pct_booked = 100*((365 - availability_365)/365))
+```
+
+### Rating by number of times hosted
+```{r}
+# rating by number of times hosted
+nyc_airbnb %>% 
+  group_by(host_id) %>% 
+  mutate(times_hosted = n()) %>% 
+  ggplot(aes(x = factor(times_hosted), y = review_scores_location, color = factor(times_hosted))) + 
+  geom_boxplot() + 
+  labs(
+    x = "Number of times hosted", 
+    y = "rating"
+  ) + 
+  coord_flip()
+```
+
+### spatial locations
+
+```{r}
+nyc_airbnb %>% 
+  filter(neighbourhood_group == "Manhattan", 
+         price < 1000) %>% 
+  ggplot(aes(x = lat, y = long, color = price)) + 
+  geom_point(alpha = 0.3) +
+  facet_grid(~room_type)
+```
+
+## Leaflet
+```{r}
+# creat stars variable
+nyc_airbnb <- nyc_airbnb %>% 
+  mutate(stars = floor(review_scores_location/2),
+  label = paste0("<b>Stars: ", stars, "</b><br> Price: ", price))
+
+# create color palet based on reviews
+pal <- colorNumeric(
+  palette = "viridis",
+  domain = nyc_airbnb$stars)
+
+nyc_airbnb %>% 
+  filter(neighbourhood_group == "Manhattan") %>% 
+  na.omit(stars) %>% 
+  sample_n(1000) %>% 
+  leaflet() %>% 
+  addTiles() %>% 
+  addProviderTiles(providers$CartoDB.Positron) %>% 
+  #grays out background
+  addCircleMarkers(~lat, ~long, 
+                   popup = ~label,
+                   radius = 1,
+                   color = ~pal(stars))
+  # addMarkers(~lat, ~long, popup = ~name) #default markers
+```
+
